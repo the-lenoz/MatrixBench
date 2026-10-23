@@ -15,19 +15,26 @@ public:
     using value_type = T;
     using storage_type = StoragePolicy<T>;
 
-    explicit Matrix(std::size_t size);
-    ~Matrix();
+    explicit Matrix(std::size_t size) : storage_(size) {}
+    ~Matrix() = default;
 
-    Matrix(const Matrix& other);
-    Matrix& operator=(const Matrix& other);
+    Matrix(const Matrix& other) = default;
+    Matrix& operator=(const Matrix& other) = default;
 
-    Matrix(Matrix&& other) noexcept;
-    Matrix& operator=(Matrix&& other) noexcept;
+    Matrix(Matrix&& other) noexcept = default;
+    Matrix& operator=(Matrix&& other) noexcept = default;
 
-    [[nodiscard]] std::size_t size() const noexcept;
+    [[nodiscard]] std::size_t size() const noexcept {
+        return storage_.size();
+    }
 
-    T& operator()(std::size_t row, std::size_t column) noexcept;
-    const T& operator()(std::size_t row, std::size_t column) const noexcept;
+    T& operator()(std::size_t row, std::size_t column) noexcept {
+        return storage_(row, column);
+    }
+
+    const T& operator()(std::size_t row, std::size_t column) const noexcept {
+        return storage_(row, column);
+    }
 
 private:
     StoragePolicy<T> storage_;

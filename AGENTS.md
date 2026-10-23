@@ -6,20 +6,19 @@ requirements, module names, or project scope changes.
 
 ## Goal and scope
 
-MatrixBench is a C++23 library for comparing determinant algorithms and square
-matrix memory layouts. It is not a general linear-algebra library. The supported
-algorithms are Gaussian elimination and Bareiss; the supported layouts are one
-contiguous allocation and separately allocated rows.
+MatrixBench is a C++23 library and CLI for comparing determinant algorithms and
+square matrix memory layouts. It is not a general linear-algebra library. The
+supported algorithms are Gaussian elimination and Bareiss; the supported
+layouts are one contiguous allocation and separately allocated rows.
 
-Do not add general matrix arithmetic, a CLI, Coppersmith–Winograd, third-party
+Do not add general matrix arithmetic, Coppersmith–Winograd, third-party
 dependencies, STL containers, installation rules, packaging, or benchmarks
 until the corresponding stage is explicitly requested. Tests may grow only
 alongside behavior they can exercise.
 
-The current stage is an interface-only skeleton. Public declarations must
-compile, but constructors, ownership operations, element access, and
-determinant algorithms intentionally have no definitions. Calling them before
-the implementation stage is expected to fail at link time.
+Storage ownership, the matrix facade, Gaussian elimination, and Bareiss are
+implemented. Changes to behavior must be introduced test-first and verified in
+both layouts before this specification is updated.
 
 ## Project structure
 
@@ -34,12 +33,34 @@ LICENSE
 src/storage.cppm
 src/matrix.cppm
 src/determinant.cppm
-tests/module_import_smoke.cpp
+src/main.cpp
+tests/matrixbench_tests.cpp
+tests/cli_e2e.cmake
 ```
 
-Template implementations must later be added to the existing module interface
-units so their definitions are reachable by importers. Do not create parallel
-headers or implementation units merely to reproduce the same separation.
+The explicitly requested benchmark/report extension adds only these
+non-production artifacts:
+
+```text
+bench/benchmark_main.cpp
+scripts/run_cli_benchmarks.py
+scripts/check_benchmark_results.py
+analysis/matrixbench_report.ipynb
+```
+
+`matrixbench_bench` is an opt-in executable, not a CTest benchmark. It writes
+raw CSV samples and JSON metadata to a caller-supplied directory; generated
+result directories are not versioned. Its core determinant timings include the
+algorithm's mandatory working copy but exclude fixture construction. The CLI
+script measures a separate end-to-end process experiment. Do not combine these
+two timing layers in aggregate performance claims. Benchmark fixtures use a
+fixed safe coefficient scale and the report is performance-only: numerical
+accuracy and type-applicability boundaries belong to correctness tests, not to
+the benchmark dataset.
+
+Template implementations remain in the existing module interface units so
+their definitions are reachable by importers. Do not create parallel headers
+or implementation units merely to reproduce the same separation.
 
 ## Module `matrixbench.storage`
 
@@ -70,15 +91,16 @@ public:
 ```
 
 It owns one value-initialized allocation containing `size * size` elements.
-Indexing uses `row * size + column`. Overflow in the element-count calculation
-must be detected before allocation.
+Indexing uses `row * size + column`. Overflow in the logical element-count
+calculation is detected before allocation and reported as `std::length_error`.
 
 ### `JaggedStorage<T>`
 
 Its public interface is identical to `ContiguousStorage<T>`. It owns a `T**`
 row table and one value-initialized `T[size]` allocation per row. Construction
 must provide the strong exception guarantee by releasing any rows allocated
-before a later allocation fails.
+before a later allocation fails. It applies the same logical `size * size`
+overflow check and `std::length_error` contract as contiguous storage.
 
 ### `MatrixStorage<Storage, T>`
 
@@ -128,10 +150,11 @@ It is always square. Size zero is valid, with no element accessible. Element
 access performs no bounds check; both indices have the precondition
 `index < size()`.
 
-All three owning types follow the Rule of Five. Copying creates independent
-storage and provides the strong exception guarantee. After a move, the source
-is valid, owns no allocation, and reports size zero. Self-copy-assignment and
-self-move-assignment are safe. Destruction and move operations are `noexcept`.
+All three owning types follow the Rule of Five. Copy assignment uses an
+independent temporary and provides the strong exception guarantee. After a
+move, the source is valid, owns no allocation, and reports size zero.
+Self-copy-assignment and self-move-assignment preserve the object. Destruction
+and move operations are `noexcept`.
 
 The policies are in a separate module from `Matrix` so storage layout can vary
 without duplicating algorithms or coupling low-level ownership to the facade.
@@ -177,12 +200,39 @@ fraction-free elimination, uses row pivoting, preserves exact division, and
 never converts values to floating point. It returns `T`. If a required
 intermediate value or the exact determinant cannot be represented safely, it
 throws `std::overflow_error` rather than invoking signed overflow or returning
-a truncated result.
+a truncated result. Portable checked multiplication, subtraction, division,
+and negation are used; the implementation does not depend on `__int128`.
 
 Allocation failures from either algorithm propagate as `std::bad_alloc`.
 
 Algorithms remain free functions rather than `Matrix` members so algorithm and
 storage layout stay independent experimental dimensions.
+
+## Command-line interface
+
+The CMake target is `matrixbench_cli`; its output file is `matrixbench`. CLI
+logic stays in `src/main.cpp` and imports `matrixbench.determinant`. Do not add
+a CLI module or expose argument parsing through the library API.
+
+Invocation requires exactly one value for each flag, in either order:
+
+```text
+matrixbench --storage contiguous|jagged --algorithm gauss|bareiss
+```
+
+`--help` is accepted only by itself and exits successfully. Other missing,
+duplicate, unknown, or extra arguments produce exit code `2`.
+
+The program reads a nonnegative `N` and exactly `N * N` row-major elements from
+stdin, separated by arbitrary whitespace. Gauss reads finite `double` values;
+Bareiss reads `long long` values. Missing, malformed, fractional Bareiss, or
+trailing input produces exit code `3`. Size zero is valid.
+
+Successful output is exactly the determinant followed by a newline, with no
+stderr output. Gauss uses `std::numeric_limits<double>::max_digits10`; Bareiss
+uses integer formatting. Allocation, arithmetic, output, and other computation
+failures return `4`. Every error diagnostic goes to stderr and starts with
+`matrixbench:`; error paths leave stdout empty.
 
 ## Language and dependency rules
 
@@ -201,16 +251,26 @@ storage layout stay independent experimental dimensions.
 - Keep public names in namespace `matrixbench` and module names under the
   `matrixbench.` prefix.
 
-## Future verification
+## Verification
 
-When implementation is requested, add verification for both storage layouts;
-sizes `0`, `1`, and larger; value initialization; deep copy; move-to-empty
-invariants; self-assignment; singular, triangular, and row-swapping matrices;
-preservation of the input; Gaussian tolerance behavior; exact Bareiss results;
-and overflow reporting. Performance work must compare equivalent inputs and
-keep setup outside measured regions.
+The test suite verifies both storage layouts; sizes `0`, `1`, and larger;
+value initialization; deep copy; move-to-empty invariants; self-assignment;
+construction and copy exception safety; singular, triangular, and row-swapping
+matrices; preservation of the input; Gaussian tolerance behavior; exact
+Bareiss results; and overflow reporting.
 
-The interface-only stage contains one executable CTest smoke check. It imports
-`matrixbench.determinant` and confirms that both matrix layouts are reachable
-through the re-export chain without invoking undefined operations. Add
-algorithm and ownership tests only when their implementations exist.
+`tests/cli_e2e.cmake` is a process-level CTest harness. It generates input in
+the build directory, launches `$<TARGET_FILE:matrixbench_cli>` without a shell,
+and verifies exact exit code and stdout plus the required stderr diagnostic.
+E2E coverage includes all four storage/algorithm combinations, fractional
+Gauss input, strict input and flag failures, overflow, and `128 x 128` upper
+triangular matrices. E2E tests carry the `e2e` label; the library test carries
+the `unit` label.
+
+Run both CMake workflows after behavior changes. Also verify fresh Clang and
+GCC builds and run a Clang AddressSanitizer/UndefinedBehaviorSanitizer build for
+ownership or arithmetic changes. Performance work must compare equivalent
+inputs and keep setup outside measured regions. Benchmark reports use medians
+and bootstrap confidence intervals over raw samples. Gauss (`double`) and
+Bareiss (`long long`) are distinct numerical experiments; compare storage
+layouts within an algorithm, not their absolute times across algorithms.
