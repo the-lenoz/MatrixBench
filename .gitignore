@@ -22,3 +22,7 @@ CMakeUserPresets.json
 
 benchmark-results/
 analysis/*.html
+build/
+.cache/
+
+scripts/__pycache__/

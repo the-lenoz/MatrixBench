@@ -4,6 +4,28 @@ project(MatrixBench LANGUAGES CXX)
 
 include(CTest)
 
+include(FetchContent)
+set(CLI11_MODULES ON CACHE BOOL "Build the official CLI11 named module" FORCE)
+set(CLI11_PRECOMPILED OFF CACHE BOOL "Use the module's own implementation" FORCE)
+set(CLI11_SINGLE_FILE OFF CACHE BOOL "Do not generate a CLI11 header" FORCE)
+set(CLI11_BUILD_TESTS OFF CACHE BOOL "Do not build dependency tests" FORCE)
+set(CLI11_BUILD_EXAMPLES OFF CACHE BOOL "Do not build dependency examples" FORCE)
+set(CLI11_BUILD_DOCS OFF CACHE BOOL "Do not build dependency documentation" FORCE)
+set(CLI11_INSTALL OFF CACHE BOOL "Do not install CLI11" FORCE)
+FetchContent_Declare(cli11
+    URL https://codeload.github.com/CLIUtils/CLI11/tar.gz/refs/tags/v2.7.2
+    URL_HASH SHA256=46eef3101da70852ec7af026e09d485ccee81813331c8c6052d39344443b83da
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(cli11)
+if(NOT TARGET CLI11::Module)
+    message(FATAL_ERROR "MatrixBench requires the official CLI11::Module target")
+endif()
+# Compile the BMI and its consumers in the same language mode, including builds
+# configured without presets. Never fall back to the header-only target.
+target_compile_features(CLI11_Module PUBLIC cxx_std_23)
+set_target_properties(CLI11_Module PROPERTIES CXX_EXTENSIONS OFF)
+
 add_library(matrixbench)
 add_library(MatrixBench::matrixbench ALIAS matrixbench)
 
@@ -30,7 +52,7 @@ set_target_properties(matrixbench_cli PROPERTIES
     OUTPUT_NAME matrixbench
 )
 target_link_libraries(matrixbench_cli
-    PRIVATE MatrixBench::matrixbench
+    PRIVATE MatrixBench::matrixbench CLI11::Module
 )
 
 add_executable(matrixbench_bench
@@ -41,7 +63,7 @@ set_target_properties(matrixbench_bench PROPERTIES
     CXX_EXTENSIONS OFF
 )
 target_link_libraries(matrixbench_bench
-    PRIVATE MatrixBench::matrixbench
+    PRIVATE MatrixBench::matrixbench CLI11::Module
 )
 
 find_package(Git QUIET)
@@ -146,4 +168,30 @@ if(BUILD_TESTING)
     add_matrixbench_cli_e2e_test(error.trailing-token trailing_token contiguous gauss)
     add_matrixbench_cli_e2e_test(error.fractional-bareiss fractional_bareiss contiguous bareiss)
     add_matrixbench_cli_e2e_test(error.bareiss-overflow bareiss_overflow contiguous bareiss)
+    foreach(scenario IN ITEMS
+        duplicate_algorithm duplicate_same missing_storage_value missing_algorithm_value
+        empty_storage empty_algorithm help_first help_last help_unknown short_help
+        equals terminator no_args
+    )
+        add_matrixbench_cli_e2e_test("error.${scenario}" "${scenario}" none none)
+    endforeach()
+
+    foreach(scenario IN ITEMS
+        help no_args missing_output empty_output
+        missing_output_value missing_mode_value missing_filter_value missing_seed_value
+        duplicate_output duplicate_mode duplicate_filter duplicate_seed
+        invalid_mode invalid_filter negative_seed overflow_seed fractional_seed
+        malformed_seed signed_seed empty_seed unknown_flag extra_argument
+        short_help help_first help_last equals terminator seed_zero seed_max
+    )
+        add_test(
+            NAME "matrixbench.bench.cli.${scenario}"
+            COMMAND ${CMAKE_COMMAND}
+                "-DCLI=$<TARGET_FILE:matrixbench_bench>"
+                "-DCASE=bench_${scenario}"
+                "-DTEST_ID=bench-${scenario}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_e2e.cmake"
+        )
+        set_tests_properties("matrixbench.bench.cli.${scenario}" PROPERTIES LABELS e2e)
+    endforeach()
 endif()

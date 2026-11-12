@@ -1,7 +1,8 @@
+#include <charconv>
 #include <chrono>
 #include <concepts>
 #include <cstddef>
-#include <cstdlib>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -9,8 +10,10 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 
+import cli11;
 import matrixbench.determinant;
 
 namespace {
@@ -22,7 +25,7 @@ struct Options final {
     std::filesystem::path output_directory;
     std::uint64_t seed{20261023U};
     bool full{};
-    std::string_view filter{"all"};
+    std::string filter{"all"};
 };
 
 struct Case final {
@@ -36,51 +39,55 @@ struct Case final {
 volatile double double_sink{};
 volatile long long integer_sink{};
 
-[[noreturn]] void usage_error(std::string_view message) {
-    throw std::invalid_argument{std::string{message}};
-}
+// False means CLI11 printed help; no files or measurements should follow.
+bool parse_options(int argc, char* argv[], Options& options) {
+    CLI::App app{"Write raw core benchmark samples and JSON metadata to DIR.", "matrixbench_bench"};
+    app.set_help_flag("--help", "Show this help and exit (use alone)");
+    app.option_defaults()->multi_option_policy(CLI::MultiOptionPolicy::Throw);
 
-Options parse_options(int argc, char* argv[]) {
-    Options options;
-    bool has_output = false;
+    std::string output;
+    std::string mode{"quick"};
+    app.add_option("--output", output, "Result directory (created if needed)")
+        ->required()->check(CLI::Validator{
+            [](std::string& value) -> std::string {
+                return value.empty() ? "directory must not be empty" : "";
+            }, "DIR"});
+    app.add_option("--mode", mode, "Benchmark duration")
+        ->check(CLI::IsMember({"quick", "full"}))->capture_default_str();
+    app.add_option("--filter", options.filter, "Run only the selected core series")
+        ->check(CLI::IsMember({"all", "storage", "gauss", "bareiss"}))->capture_default_str();
+    app.add_option_function<std::string>("--seed", [&options](const std::string& value) {
+        // CLI11's integer conversion permits non-decimal bases. Our seeds are
+        // strictly decimal, and from_chars checks the full uint64_t range.
+        std::uint64_t seed{};
+        const auto result = std::from_chars(value.data(), value.data() + value.size(), seed, 10);
+        if (result.ec != std::errc{} || result.ptr != value.data() + value.size()) {
+            throw CLI::ValidationError{"--seed", "must be a decimal integer in [0, 18446744073709551615]"};
+        }
+        options.seed = seed;
+    }, "Unsigned decimal fixture seed")
+        ->type_name("UINT64")->default_str(std::to_string(options.seed));
+
+    // Preserve the separate-token option syntax, just as in the main CLI.
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument{argv[index]};
-        if (argument == "--output" && index + 1 < argc) {
-            options.output_directory = argv[++index];
-            has_output = true;
-        } else if (argument == "--seed" && index + 1 < argc) {
-            const char* value = argv[++index];
-            char* end{};
-            const auto parsed = std::strtoull(value, &end, 10);
-            if (*value == '\0' || *end != '\0') {
-                usage_error("--seed must be an unsigned integer");
-            }
-            options.seed = parsed;
-        } else if (argument == "--mode" && index + 1 < argc) {
-            const std::string_view value{argv[++index]};
-            if (value == "full") {
-                options.full = true;
-            } else if (value != "quick") {
-                usage_error("--mode must be quick or full");
-            }
-        } else if (argument == "--filter" && index + 1 < argc) {
-            options.filter = argv[++index];
-            if (options.filter != "all" && options.filter != "storage"
-                && options.filter != "gauss" && options.filter != "bareiss") {
-                usage_error("--filter must be all, storage, gauss, or bareiss");
-            }
-        } else if (argument == "--help") {
-            std::cout << "Usage: matrixbench_bench --output DIR [--mode quick|full] "
-                         "[--seed N] [--filter all|storage|gauss|bareiss]\n";
-            std::exit(0);
-        } else {
-            usage_error("unknown or incomplete option");
+        if (argument == "--" || (argument.starts_with("--")
+                                && argument.find('=') != std::string_view::npos)) {
+            throw CLI::ValidationError{"use --option value without '=' or '--'"};
         }
     }
-    if (!has_output) {
-        usage_error("--output is required");
+    try {
+        app.parse(argc, argv);
+    } catch (const CLI::CallForHelp&) {
+        if (argc != 2) {
+            throw CLI::ValidationError{"--help", "must be used alone"};
+        }
+        std::cout << app.help();
+        return false;
     }
-    return options;
+    options.output_directory = output;
+    options.full = mode == "full";
+    return true;
 }
 
 const char* compiler_name() {
@@ -419,7 +426,13 @@ void run_bareiss_cases(std::ofstream& output, const Options& options) {
 
 int main(int argc, char* argv[]) {
     try {
-        const Options options = parse_options(argc, argv);
+        Options options;
+        if (!parse_options(argc, argv, options)) {
+            if (!std::cout) {
+                throw std::runtime_error{"failed to write help"};
+            }
+            return 0;
+        }
         std::filesystem::create_directories(options.output_directory);
         write_metadata(options);
         std::ofstream output{options.output_directory / "core_samples.csv"};

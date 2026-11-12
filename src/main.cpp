@@ -5,9 +5,11 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <utility>
 
+import cli11;
 import matrixbench.determinant;
 
 namespace {
@@ -15,16 +17,6 @@ namespace {
 constexpr int usage_error_exit_code = 2;
 constexpr int input_error_exit_code = 3;
 constexpr int computation_error_exit_code = 4;
-
-constexpr std::string_view usage =
-    "Usage: matrixbench --storage <contiguous|jagged> --algorithm <gauss|bareiss>\n"
-    "Reads N followed by exactly N*N matrix elements from standard input.\n"
-    "gauss reads double; bareiss reads long long.\n";
-
-class UsageError final : public std::runtime_error {
-public:
-    using std::runtime_error::runtime_error;
-};
 
 class InputError final : public std::runtime_error {
 public:
@@ -44,64 +36,46 @@ enum class AlgorithmChoice {
 struct Options final {
     StorageChoice storage{};
     AlgorithmChoice algorithm{};
-    bool has_storage{};
-    bool has_algorithm{};
 };
 
-Options parse_options(int argument_count, char* arguments[]) {
-    Options options;
+// False means CLI11 printed help; no input or computation should follow.
+bool parse_options(int argument_count, char* arguments[], Options& options) {
+    CLI::App app{
+        "Reads N followed by exactly N*N row-major matrix elements from stdin. "
+        "gauss reads finite double values; bareiss reads long long values.",
+        "matrixbench"
+    };
+    app.set_help_flag("--help", "Show this help and exit (use alone)");
+    app.option_defaults()->multi_option_policy(CLI::MultiOptionPolicy::Throw);
 
+    std::string storage;
+    std::string algorithm;
+    app.add_option("--storage", storage, "Square matrix memory layout")
+        ->required()->check(CLI::IsMember({"contiguous", "jagged"}));
+    app.add_option("--algorithm", algorithm, "Determinant algorithm")
+        ->required()->check(CLI::IsMember({"gauss", "bareiss"}));
+
+    // CLI11 accepts additional spellings by default. Keep our separate-token
+    // interface; CLI11 handles values, required options, and duplicates.
     for (int index = 1; index < argument_count; ++index) {
         const std::string_view argument{arguments[index]};
-
-        if (argument == "--storage") {
-            if (options.has_storage) {
-                throw UsageError{"duplicate --storage"};
-            }
-            if (index + 1 >= argument_count) {
-                throw UsageError{"missing value for --storage"};
-            }
-
-            const std::string_view value{arguments[++index]};
-            if (value == "contiguous") {
-                options.storage = StorageChoice::contiguous;
-            } else if (value == "jagged") {
-                options.storage = StorageChoice::jagged;
-            } else {
-                throw UsageError{"unknown storage"};
-            }
-            options.has_storage = true;
-        } else if (argument == "--algorithm") {
-            if (options.has_algorithm) {
-                throw UsageError{"duplicate --algorithm"};
-            }
-            if (index + 1 >= argument_count) {
-                throw UsageError{"missing value for --algorithm"};
-            }
-
-            const std::string_view value{arguments[++index]};
-            if (value == "gauss") {
-                options.algorithm = AlgorithmChoice::gauss;
-            } else if (value == "bareiss") {
-                options.algorithm = AlgorithmChoice::bareiss;
-            } else {
-                throw UsageError{"unknown algorithm"};
-            }
-            options.has_algorithm = true;
-        } else if (argument == "--help") {
-            throw UsageError{"--help must be used alone"};
-        } else {
-            throw UsageError{"unknown argument"};
+        if (argument == "--" || (argument.starts_with("--")
+                                && argument.find('=') != std::string_view::npos)) {
+            throw CLI::ValidationError{"use --option value without '=' or '--'"};
         }
     }
-
-    if (!options.has_storage) {
-        throw UsageError{"missing required --storage"};
+    try {
+        app.parse(argument_count, arguments);
+    } catch (const CLI::CallForHelp&) {
+        if (argument_count != 2) {
+            throw CLI::ValidationError{"--help", "must be used alone"};
+        }
+        std::cout << app.help();
+        return false;
     }
-    if (!options.has_algorithm) {
-        throw UsageError{"missing required --algorithm"};
-    }
-    return options;
+    options.storage = storage == "contiguous" ? StorageChoice::contiguous : StorageChoice::jagged;
+    options.algorithm = algorithm == "gauss" ? AlgorithmChoice::gauss : AlgorithmChoice::bareiss;
+    return true;
 }
 
 template<typename T, template<typename> typename Storage>
@@ -185,16 +159,15 @@ int report_error(int exit_code, const std::exception& error) {
 } // namespace
 
 int main(int argument_count, char* arguments[]) {
-    if (argument_count == 2 && std::string_view{arguments[1]} == "--help") {
-        std::cout << usage;
-        return std::cout ? 0 : computation_error_exit_code;
-    }
-
     try {
-        const Options options = parse_options(argument_count, arguments);
+        Options options;
+        if (!parse_options(argument_count, arguments, options)) {
+            verify_output();
+            return 0;
+        }
         dispatch(options);
         return 0;
-    } catch (const UsageError& error) {
+    } catch (const CLI::ParseError& error) {
         return report_error(usage_error_exit_code, error);
     } catch (const InputError& error) {
         return report_error(input_error_exit_code, error);
