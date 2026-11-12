@@ -55,7 +55,21 @@ target_link_libraries(matrixbench_cli
     PRIVATE MatrixBench::matrixbench CLI11::Module
 )
 
-add_executable(matrixbench_bench
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_LIBPFM OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(googlebenchmark
+    URL https://codeload.github.com/google/benchmark/tar.gz/refs/tags/v1.10.0
+    URL_HASH SHA256=acc5c7c0fbed855c4aaa2d7c3c36fb82b0c15c28f4e151e3f679c2fc0aa404af
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(googlebenchmark)
+
+add_executable(matrixbench_bench EXCLUDE_FROM_ALL
     bench/benchmark_main.cpp
 )
 target_compile_features(matrixbench_bench PRIVATE cxx_std_23)
@@ -63,7 +77,7 @@ set_target_properties(matrixbench_bench PROPERTIES
     CXX_EXTENSIONS OFF
 )
 target_link_libraries(matrixbench_bench
-    PRIVATE MatrixBench::matrixbench CLI11::Module
+    PRIVATE MatrixBench::matrixbench CLI11::Module benchmark::benchmark
 )
 
 find_package(Git QUIET)
@@ -96,6 +110,12 @@ target_compile_definitions(matrixbench_bench PRIVATE
 )
 
 if(BUILD_TESTING)
+    find_package(Python3 QUIET COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME matrixbench.bench.tools
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmark_tools_tests.py")
+        set_tests_properties(matrixbench.bench.tools PROPERTIES LABELS unit)
+    endif()
     add_executable(matrixbench_tests
         tests/matrixbench_tests.cpp
     )
@@ -177,7 +197,7 @@ if(BUILD_TESTING)
     endforeach()
 
     foreach(scenario IN ITEMS
-        help no_args missing_output empty_output
+        smoke list google_time google_unknown google_invalid help no_args missing_output empty_output
         missing_output_value missing_mode_value missing_filter_value missing_seed_value
         duplicate_output duplicate_mode duplicate_filter duplicate_seed
         invalid_mode invalid_filter negative_seed overflow_seed fractional_seed

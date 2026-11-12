@@ -41,12 +41,20 @@
     {
       "name": "debug",
       "displayName": "Build Debug",
-      "configurePreset": "debug"
+      "configurePreset": "debug",
+      "targets": [
+        "all",
+        "matrixbench_bench"
+      ]
     },
     {
       "name": "release",
       "displayName": "Build Release",
-      "configurePreset": "release"
+      "configurePreset": "release",
+      "targets": [
+        "all",
+        "matrixbench_bench"
+      ]
     }
   ],
   "testPresets": [
