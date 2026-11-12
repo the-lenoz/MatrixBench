@@ -24,6 +24,11 @@ forbidden in project code except the borrowed `std::vector<Run>` parameter
 required to forward upstream reporter callbacks. Both consume the official
 `cli11` named module; the MatrixBench library has no CLI11 dependency.
 
+GoogleTest and Google Mock from an installed GTest CMake config package are
+permitted as private dependencies of `matrixbench_tests` only. With
+`BUILD_TESTING=ON`, require `GTest::gmock` and `GTest::gtest_main`; do not download
+GoogleTest. Its internal STL containers are exempt from the project restriction.
+
 Storage ownership, the matrix facade, Gaussian elimination, and Bareiss are
 implemented. Changes to behavior must be introduced test-first and verified in
 both layouts before this specification is updated.
@@ -330,6 +335,15 @@ A single repetition has no bootstrap confidence interval.
   `matrixbench.` prefix; the imported third-party `cli11` module is exempt.
 
 ## Verification
+
+Tests follow Arrange–Act–Assert with one behavior per named case. Keep loops
+out of test bodies; use Google Mock matchers for C++ collections and standard
+assertions/mocks in Python. Iteration belongs in data preparation helpers or
+non-owning element views. Helpers must not use assertion macros, `MATCHER*`,
+or custom macros; test registration and assertion macros belong only in test
+declarations/bodies. Use deterministic ordinary examples and meaningful edge
+cases, without fuzzing. Typed tests exercise both storage layouts. CMake E2E
+remains a process harness with distinct preparation, execution and validation.
 
 The test suite verifies both storage layouts; sizes `0`, `1`, and larger;
 value initialization; deep copy; move-to-empty invariants; self-assignment;

@@ -110,6 +110,7 @@ target_compile_definitions(matrixbench_bench PRIVATE
 )
 
 if(BUILD_TESTING)
+    find_package(GTest CONFIG REQUIRED)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         add_test(NAME matrixbench.bench.tools
@@ -124,7 +125,7 @@ if(BUILD_TESTING)
         CXX_EXTENSIONS OFF
     )
     target_link_libraries(matrixbench_tests
-        PRIVATE MatrixBench::matrixbench
+        PRIVATE MatrixBench::matrixbench GTest::gmock GTest::gtest_main
     )
 
     add_test(
