@@ -31,8 +31,6 @@ MatrixBench — библиотека и консольная программа 
 - компилятор C++23 с поддержкой модулей C++;
 - CMake 3.28 или новее;
 - Ninja;
-- установленный GoogleTest с Google Mock и CMake config-пакетом GTest для
-  `BUILD_TESTING=ON` (цели `GTest::gmock` и `GTest::gtest_main`);
 - Python 3 для скриптов и дополнительных тестов инструментов (CTest подключает
   их, если интерпретатор найден).
 
@@ -42,16 +40,40 @@ MatrixBench — библиотека и консольная программа 
 библиотека MatrixBench от CLI11 не зависит. Модульный режим CLI11 upstream
 пока считает экспериментальным.
 
-При первой конфигурации дерева сборки CMake скачивает закреплённый архив
-исходников CLI11 и Google Benchmark и проверяет SHA256. Для сборки без сети заранее распакуйте
-исходники CLI11 v2.7.2 и задайте их абсолютный путь:
+Все три C++ зависимости подключаются через CPM.cmake v0.43.2. Полный
+официальный файл `cmake/CPM.cmake` хранится в репозитории вместе с лицензией;
+его загрузка при конфигурации не требуется. CLI11 v2.7.2, Google Benchmark
+v1.10.0 и GoogleTest/Mock v1.18.0 загружаются из закреплённых архивов с
+проверкой SHA256. GoogleTest подключается только при `BUILD_TESTING=ON`.
+
+Для сборки без сети заранее распакуйте исходники и задайте абсолютные пути:
 
 ```sh
 cmake --preset debug \
-  -DFETCHCONTENT_SOURCE_DIR_CLI11=/absolute/path/to/CLI11-2.7.2 \
-  -DFETCHCONTENT_SOURCE_DIR_GOOGLEBENCHMARK=/absolute/path/to/benchmark-1.10.0
+  -DCPM_cli11_SOURCE=/absolute/path/to/CLI11-2.7.2 \
+  -DCPM_googlebenchmark_SOURCE=/absolute/path/to/benchmark-1.10.0 \
+  -DCPM_googletest_SOURCE=/absolute/path/to/googletest-1.18.0
 cmake --workflow --preset debug
 ```
+
+При `BUILD_TESTING=OFF` исходники GoogleTest не нужны. Прежние параметры
+`FETCHCONTENT_SOURCE_DIR_*` заменены на `CPM_*_SOURCE`; их совместимость
+не поддерживается. При миграции используйте новое дерево сборки, чтобы
+старые значения FetchContent в CMakeCache не влияли на выбор исходников.
+По умолчанию системные C++ пакеты не используются.
+
+Для повторного использования загруженных исходников между деревьями сборки
+задайте `CPM_SOURCE_CACHE`, например:
+
+```sh
+export CPM_SOURCE_CACHE="$HOME/.cache/CPM"
+cmake --workflow --preset debug
+cmake --workflow --preset release
+```
+
+После заполнения кеша те же объявления зависимостей доступны без сети,
+в том числе при конфигурации нового дерева сборки. Кеш хранит исходники;
+каждое дерево собирает зависимости своим компилятором и параметрами.
 
 CLI11 собирается как модуль C++23 с отключёнными расширениями. Его тесты,
 примеры и документация отключены; замены на заголовочную версию нет.
@@ -95,8 +117,10 @@ CMake предоставляет библиотечную цель `matrixbench`
 `matrixbench_cli`, исполняемый файл `matrixbench` и утилита бенчмарков
 `matrixbench_bench`.
 
-GoogleTest и Google Mock подключаются только к `matrixbench_tests` через
-`find_package(GTest CONFIG REQUIRED)`, без скачивания. Внутренние STL-контейнеры
+GoogleTest и Google Mock собираются из исходников через CPM только при
+`BUILD_TESTING=ON` и подключаются приватно к `matrixbench_tests` через
+`GTest::gmock` и `GTest::gtest_main`. Их установка, собственные тесты, примеры
+и интеграция с Abseil отключены. Внутренние STL-контейнеры
 зависимости допустимы; запрет контейнеров в коде проекта сохраняется.
 
 Тесты следуют Arrange–Act–Assert: один именованный сценарий проверяет одно
@@ -207,9 +231,9 @@ int main() {
 Скоростные сценарии используют фиксированный безопасный масштаб коэффициентов;
 проверки точности и границ применимости остаются в функциональных тестах.
 
-Бенчи используют Google Benchmark v1.10.0: FetchContent скачивает архив с
+Бенчи используют Google Benchmark v1.10.0: CPM скачивает архив с
 проверкой SHA256. Для сборки без сети укажите
-`-DFETCHCONTENT_SOURCE_DIR_GOOGLEBENCHMARK=/path/to/benchmark-1.10.0`.
+`-DCPM_googlebenchmark_SOURCE=/path/to/benchmark-1.10.0`.
 Зависимость приватная для `matrixbench_bench`; её тесты, установка, Python
 bindings и libpfm отключены. Заголовок Google Benchmark разрешён в бенчах;
 контейнеры зависимости и заимствованный параметр reporter callback не подпадают

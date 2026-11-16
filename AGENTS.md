@@ -24,10 +24,12 @@ forbidden in project code except the borrowed `std::vector<Run>` parameter
 required to forward upstream reporter callbacks. Both consume the official
 `cli11` named module; the MatrixBench library has no CLI11 dependency.
 
-GoogleTest and Google Mock from an installed GTest CMake config package are
-permitted as private dependencies of `matrixbench_tests` only. With
-`BUILD_TESTING=ON`, require `GTest::gmock` and `GTest::gtest_main`; do not download
-GoogleTest. Its internal STL containers are exempt from the project restriction.
+GoogleTest and Google Mock v1.18.0 are permitted as private dependencies of
+`matrixbench_tests` only. With `BUILD_TESTING=ON`, fetch them through CPM and
+require `GTest::gmock` and `GTest::gtest_main`. Do not fetch or configure them
+when testing is disabled. Disable their installation, own tests, samples, and
+Abseil integration. Their internal STL containers are exempt from the project
+restriction.
 
 Storage ownership, the matrix facade, Gaussian elimination, and Bareiss are
 implemented. Changes to behavior must be introduced test-first and verified in
@@ -40,6 +42,7 @@ Keep the production structure minimal:
 ```text
 CMakeLists.txt
 CMakePresets.json
+cmake/CPM.cmake
 README.md
 AGENTS.md
 LICENSE
@@ -309,19 +312,29 @@ A single repetition has no bootstrap confidence interval.
 - Support standards-conforming C++ module builds with both Clang and GCC; do
   not hard-code a compiler in CMake.
 - Use CMake's `FILE_SET CXX_MODULES` and Ninja for the documented build.
-- Fetch CLI11 v2.7.2 from its source archive with a pinned SHA256 using
-  `FetchContent`, with `CLI11_MODULES=ON`. Link both executables privately to
+- Manage all three C++ dependencies through `CPMAddPackage`, using explicit
+  versions, archive URLs, and pinned SHA256 hashes in `CMakeLists.txt`. Vendor
+  the full official CPM.cmake v0.43.2 release in `cmake/CPM.cmake`, preserving
+  its license; do not use a bootstrap downloader or automatic updates. Do not
+  search for system C++ packages by default.
+- Fetch CLI11 v2.7.2 from its source archive through CPM, with
+  `CLI11_MODULES=ON`. Link both executables privately to
   `CLI11::Module`; fail configuration if that target is unavailable. Never
   substitute the header-only target or a project-written wrapper module.
   Compile the dependency module in C++23 with extensions disabled, matching its
   consumers. Disable dependency tests, examples, documentation, and optional
   installation. Initial configuration needs network access unless the source
-  is supplied with `FETCHCONTENT_SOURCE_DIR_CLI11` pointing to the unpacked
+  is supplied with `CPM_cli11_SOURCE` pointing to the unpacked
   CLI11 v2.7.2 source tree.
-- Fetch Google Benchmark v1.10.0 via FetchContent with a pinned SHA256 and
-  `FETCHCONTENT_SOURCE_DIR_GOOGLEBENCHMARK` offline override. Disable its tests,
+- Fetch Google Benchmark v1.10.0 through CPM with
+  `CPM_googlebenchmark_SOURCE` offline override. Disable its tests,
   install, Python bindings and libpfm. Link only the bench to `benchmark::benchmark`.
   The bench is EXCLUDE_FROM_ALL; build presets explicitly build it for CLI tests.
+- Fetch GoogleTest/Mock v1.18.0 through CPM only with `BUILD_TESTING=ON`, with
+  `CPM_googletest_SOURCE` as the offline source override. Local source overrides
+  use absolute paths. Document `CPM_SOURCE_CACHE` for reusable source caching
+  and offline configuration after warming the cache. Do not provide compatibility
+  aliases for the former `FETCHCONTENT_SOURCE_DIR_*` parameters.
 - Keep `debug` and `release` configure, build, test, and workflow presets in
   `CMakePresets.json`. Presets select Ninja and enable tests but do not select a
   compiler; the caller or CLion toolchain owns that choice.

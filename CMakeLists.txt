@@ -4,20 +4,22 @@ project(MatrixBench LANGUAGES CXX)
 
 include(CTest)
 
-include(FetchContent)
-set(CLI11_MODULES ON CACHE BOOL "Build the official CLI11 named module" FORCE)
-set(CLI11_PRECOMPILED OFF CACHE BOOL "Use the module's own implementation" FORCE)
-set(CLI11_SINGLE_FILE OFF CACHE BOOL "Do not generate a CLI11 header" FORCE)
-set(CLI11_BUILD_TESTS OFF CACHE BOOL "Do not build dependency tests" FORCE)
-set(CLI11_BUILD_EXAMPLES OFF CACHE BOOL "Do not build dependency examples" FORCE)
-set(CLI11_BUILD_DOCS OFF CACHE BOOL "Do not build dependency documentation" FORCE)
-set(CLI11_INSTALL OFF CACHE BOOL "Do not install CLI11" FORCE)
-FetchContent_Declare(cli11
+include(cmake/CPM.cmake)
+CPMAddPackage(
+    NAME cli11
+    VERSION 2.7.2
     URL https://codeload.github.com/CLIUtils/CLI11/tar.gz/refs/tags/v2.7.2
     URL_HASH SHA256=46eef3101da70852ec7af026e09d485ccee81813331c8c6052d39344443b83da
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    OPTIONS
+        "CLI11_MODULES ON"
+        "CLI11_PRECOMPILED OFF"
+        "CLI11_SINGLE_FILE OFF"
+        "CLI11_BUILD_TESTS OFF"
+        "CLI11_BUILD_EXAMPLES OFF"
+        "CLI11_BUILD_DOCS OFF"
+        "CLI11_INSTALL OFF"
 )
-FetchContent_MakeAvailable(cli11)
 if(NOT TARGET CLI11::Module)
     message(FATAL_ERROR "MatrixBench requires the official CLI11::Module target")
 endif()
@@ -55,19 +57,21 @@ target_link_libraries(matrixbench_cli
     PRIVATE MatrixBench::matrixbench CLI11::Module
 )
 
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_LIBPFM OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(googlebenchmark
+CPMAddPackage(
+    NAME googlebenchmark
+    VERSION 1.10.0
     URL https://codeload.github.com/google/benchmark/tar.gz/refs/tags/v1.10.0
     URL_HASH SHA256=acc5c7c0fbed855c4aaa2d7c3c36fb82b0c15c28f4e151e3f679c2fc0aa404af
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    EXCLUDE_FROM_ALL
+    EXCLUDE_FROM_ALL YES
+    OPTIONS
+        "BENCHMARK_ENABLE_TESTING OFF"
+        "BENCHMARK_ENABLE_GTEST_TESTS OFF"
+        "BENCHMARK_ENABLE_INSTALL OFF"
+        "BENCHMARK_ENABLE_WERROR OFF"
+        "BENCHMARK_ENABLE_LIBPFM OFF"
+        "BENCHMARK_ENABLE_PYTHON OFF"
 )
-FetchContent_MakeAvailable(googlebenchmark)
 
 add_executable(matrixbench_bench EXCLUDE_FROM_ALL
     bench/benchmark_main.cpp
@@ -110,7 +114,24 @@ target_compile_definitions(matrixbench_bench PRIVATE
 )
 
 if(BUILD_TESTING)
-    find_package(GTest CONFIG REQUIRED)
+    CPMAddPackage(
+        NAME googletest
+        VERSION 1.18.0
+        URL https://codeload.github.com/google/googletest/tar.gz/refs/tags/v1.18.0
+        URL_HASH SHA256=6e3191c1455468b3fc35a417fb565c1c5071aee1b7e7f85e30cf48a98d37d8b5
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        EXCLUDE_FROM_ALL YES
+        OPTIONS
+            "BUILD_GMOCK ON"
+            "INSTALL_GTEST OFF"
+            "gtest_build_tests OFF"
+            "gtest_build_samples OFF"
+            "gmock_build_tests OFF"
+            "GTEST_HAS_ABSL OFF"
+    )
+    if(NOT TARGET GTest::gmock OR NOT TARGET GTest::gtest_main)
+        message(FATAL_ERROR "MatrixBench tests require GTest::gmock and GTest::gtest_main")
+    endif()
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         add_test(NAME matrixbench.bench.tools
